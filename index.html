@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Relatório — Linha Fibras Branqueada</title>
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<meta name="theme-color" content="#14171a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+<style>
+  :root{
+    --bg:#14171a; --panel:#1b1f23; --panel-2:#20252a;
+    --line:rgba(255,255,255,0.08);
+    --text:#e9e7e2; --text-dim:#9aa1a8;
+    --hw:#4bb3ae; --hw-soft:rgba(75,179,174,0.12);
+    --sw:#d68a3c; --sw-soft:rgba(214,138,60,0.12);
+    --ok:#5fbf77; --warn:#e0b23f; --danger:#d9695f;
+    --radius:10px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Barlow Condensed', system-ui, sans-serif;line-height:1.4;padding-bottom:96px;}
+  .hidden{display:none !important;}
+  .page{max-width:980px;margin:0 auto;padding:32px 20px 20px;}
+  header{margin-bottom:24px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;}
+  h1{font-size:clamp(28px,5vw,40px);font-weight:700;margin:0 0 4px;letter-spacing:0.01em;}
+  .subtitle{color:var(--text-dim);font-size:16px;margin:0;}
+
+  .gear-btn{
+    flex:none;width:40px;height:40px;border-radius:50%;
+    background:var(--panel);border:1px solid var(--line);color:var(--text-dim);
+    display:flex;align-items:center;justify-content:center;cursor:pointer;margin-top:4px;
+  }
+  .gear-btn:hover{color:var(--text);border-color:var(--text-dim);}
+
+  .sync-bar{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:10px 14px;margin-bottom:22px;font-size:13.5px;color:var(--text-dim);}
+  .sync-dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:none;}
+  .sync-dot.error{background:var(--danger);}
+  .sync-dot.busy{background:var(--warn);}
+
+  .config-warning{background:rgba(224,178,63,0.1);border:1px solid rgba(224,178,63,0.4);color:var(--warn);border-radius:8px;padding:14px 16px;margin-bottom:22px;font-size:14.5px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+  .config-warning button{background:var(--warn);color:#241d06;border:none;border-radius:8px;padding:8px 16px;font-size:14px;font-weight:600;cursor:pointer;}
+
+  .date-row{margin:0 0 22px;display:flex;align-items:center;gap:10px;}
+  .date-row label{font-size:15px;color:var(--text-dim);display:flex;align-items:center;gap:8px;}
+  .date-row input[type="date"]{background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:6px 10px;font-family:'IBM Plex Mono',monospace;font-size:14px;}
+
+  .columns{display:grid;grid-template-columns:1fr 1fr;gap:20px;}
+  @media (max-width:760px){.columns{grid-template-columns:1fr;}}
+  .column h2{font-size:15px;font-weight:600;color:var(--text-dim);margin:0 0 12px;padding-bottom:8px;border-bottom:1px solid var(--line);}
+  .column-hw h2{color:var(--hw);border-color:var(--hw-soft);}
+  .column-sw h2{color:var(--sw);border-color:var(--sw-soft);}
+  .card{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--hw);border-radius:var(--radius);padding:18px;margin-bottom:18px;transition:border-color .2s ease, opacity .2s ease;}
+  .column-sw .card{border-left-color:var(--sw);}
+  .card[data-confirmed="true"]{opacity:0.88;}
+  .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;}
+  .card-head h3{margin:0;font-size:20px;font-weight:600;}
+  .badge{font-size:13px;padding:3px 10px;border-radius:20px;background:var(--panel-2);color:var(--text-dim);border:1px solid var(--line);white-space:nowrap;}
+  .badge.confirmed{color:var(--ok);border-color:rgba(95,191,119,0.4);background:rgba(95,191,119,0.1);}
+  .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;}
+  @media (max-width:420px){.field-grid{grid-template-columns:1fr;}}
+  label.field{display:flex;flex-direction:column;gap:6px;font-size:13.5px;color:var(--text-dim);}
+  .input-suffix{display:flex;align-items:stretch;}
+  .input-suffix input{border-radius:8px 0 0 8px;border-right:none;}
+  .input-suffix span{display:flex;align-items:center;padding:0 10px;background:var(--panel-2);border:1px solid var(--line);border-left:none;border-radius:0 8px 8px 0;font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--text-dim);}
+  input[type="text"], textarea{width:100%;background:var(--panel-2);border:1px solid var(--line);color:var(--text);border-radius:8px;padding:9px 10px;font-family:'IBM Plex Mono',monospace;font-size:15px;}
+  input[type="text"]:focus, textarea:focus{outline:none;border-color:var(--text-dim);}
+  input:disabled, textarea:disabled, button:disabled{opacity:0.6;cursor:not-allowed;}
+  textarea{min-height:64px;resize:vertical;font-family:'Barlow Condensed',sans-serif;font-size:15px;}
+  .qual-toggle{margin-bottom:10px;}
+  .checkbox{display:flex;align-items:center;gap:8px;font-size:14.5px;color:var(--text-dim);cursor:pointer;}
+  .checkbox input{width:16px;height:16px;accent-color:var(--ok);}
+  .qual-detail{display:grid;gap:10px;margin-bottom:14px;padding:12px;background:var(--panel-2);border-radius:8px;border:1px solid var(--line);}
+  .qual-detail label{display:flex;flex-direction:column;gap:6px;font-size:13.5px;color:var(--text-dim);}
+  .pend-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+  .pend-row > span{font-size:13.5px;color:var(--text-dim);}
+  .toggle-group{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;}
+  .toggle-opt{background:var(--panel-2);color:var(--text-dim);border:none;padding:6px 16px;font-family:'Barlow Condensed',sans-serif;font-size:14px;cursor:pointer;}
+  .toggle-opt + .toggle-opt{border-left:1px solid var(--line);}
+  .toggle-opt.active{background:var(--text);color:var(--bg);font-weight:600;}
+  .pend-detail{margin-bottom:14px;}
+  .card-actions{display:flex;gap:10px;margin-top:4px;}
+  button{cursor:pointer;font-family:'Barlow Condensed',sans-serif;}
+  .btn-confirm{background:var(--ok);color:#0e1a12;border:none;border-radius:8px;padding:9px 18px;font-size:15px;font-weight:600;}
+  .btn-edit{background:transparent;color:var(--text-dim);border:1px solid var(--line);border-radius:8px;padding:9px 18px;font-size:15px;}
+  .action-bar{position:fixed;left:0;right:0;bottom:0;background:rgba(20,23,26,0.92);backdrop-filter:blur(8px);border-top:1px solid var(--line);padding:14px 20px;display:flex;align-items:center;gap:14px;justify-content:center;flex-wrap:wrap;}
+  #statusText{font-size:14px;color:var(--text-dim);font-family:'IBM Plex Mono',monospace;}
+  .btn-primary{background:var(--text);color:var(--bg);border:none;border-radius:8px;padding:11px 24px;font-size:16px;font-weight:600;}
+  .btn-danger-ghost{background:transparent;color:var(--danger);border:1px solid rgba(217,105,95,0.4);border-radius:8px;padding:11px 18px;font-size:15px;}
+  .toast{position:fixed;bottom:88px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--ok);color:#0e1a12;padding:10px 20px;border-radius:8px;font-size:15px;font-weight:600;opacity:0;pointer-events:none;transition:all .25s ease;}
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* Modal de configuração */
+  .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;padding:20px;z-index:50;}
+  .modal{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:26px;max-width:560px;width:100%;max-height:88vh;overflow:auto;}
+  .modal h2{margin:0 0 8px;font-size:22px;}
+  .modal p{color:var(--text-dim);font-size:14.5px;margin:0 0 14px;}
+  .modal ol{color:var(--text-dim);font-size:14px;margin:0 0 16px;padding-left:20px;}
+  .modal ol li{margin-bottom:4px;}
+  .modal code{background:var(--panel-2);padding:1px 5px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:13px;}
+  .modal textarea{min-height:150px;font-size:13px;margin-bottom:12px;}
+  .modal-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:10px;}
+  .modal-error{color:var(--danger);font-size:14px;margin:0 0 10px;min-height:18px;}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;margin-top:8px;}
+  .btn-file{background:var(--panel-2);border:1px solid var(--line);color:var(--text-dim);border-radius:8px;padding:9px 14px;font-size:14px;}
+</style>
+</head>
+<body>
+<div class="page">
+  <header>
+    <div>
+      <h1>Linha Fibras Branqueada</h1>
+      <p class="subtitle">Preencha, confirme e copie — sincronizado em tempo real entre os operadores</p>
+    </div>
+    <button id="gearBtn" class="gear-btn" title="Configuração">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+      </svg>
+    </button>
+  </header>
+
+  <!-- ======================================================================
+       COLE AQUI a configuração do seu projeto Firebase (Configurações do
+       projeto → Geral → Seus apps → SDK do Firebase). Edite isso UMA VEZ,
+       antes de subir pro GitHub — depois disso não precisa mexer de novo.
+  ======================================================================= -->
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyBN0oo9frucBry8q0VtepgXZz74XBBimPY",
+      authDomain: "trabalho-68105.firebaseapp.com",
+      projectId: "trabalho-68105",
+      storageBucket: "trabalho-68105.firebasestorage.app",
+      messagingSenderId: "364291415113",
+      appId: "1:364291415113:web:e582e687694e6228013398"
+    };
+  </script>
+
+  <div id="configWarning" class="config-warning hidden">
+    <span>⚠ O arquivo ainda não tem a configuração do Firebase preenchida — edite o bloco <code>firebaseConfig</code> perto do topo do HTML.</span>
+  </div>
+
+  <div id="authWarning" class="config-warning hidden">
+    <span>🔒 Faça login para ver e editar o relatório.</span>
+    <button id="authWarningBtn">Entrar</button>
+  </div>
+
+  <div class="sync-bar">
+    <span class="sync-dot" id="syncDot"></span>
+    <span id="syncText">Conectando...</span>
+  </div>
+
+  <div class="date-row">
+    <label>Data do relatório
+      <input type="date" id="reportDate">
+    </label>
+  </div>
+
+  <div class="columns">
+    <section class="column column-hw">
+      <h2>Fibra Curta — HW</h2>
+
+      <div class="card" data-card="digestorHW" data-type="digestor" data-confirmed="false">
+        <div class="card-head"><h3>Digestor HW</h3><span class="badge" data-badge>Pendente</span></div>
+        <div class="field-grid">
+          <label class="field">Produção dia anterior
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAnterior" placeholder="3713"><span>tsa/d</span></div>
+          </label>
+          <label class="field">Produção atual
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAtual" placeholder="3700"><span>tsa/d</span></div>
+          </label>
+          <label class="field">Média Kappa dia anterior
+            <input type="text" inputmode="decimal" data-field="kappaAnterior" placeholder="15,62">
+          </label>
+          <label class="field">Kappa atual
+            <input type="text" inputmode="decimal" data-field="kappaAtual" placeholder="16,29">
+          </label>
+        </div>
+        <div class="pend-row"><span>Pendências</span>
+          <div class="toggle-group" data-pend-toggle>
+            <button type="button" class="toggle-opt active" data-pend-value="sem">Sem</button>
+            <button type="button" class="toggle-opt" data-pend-value="com">Com</button>
+          </div>
+        </div>
+        <input type="hidden" data-field="pendValue" value="sem">
+        <textarea class="pend-detail" data-field="pendDetalhe" placeholder="Descreva a pendência..." hidden></textarea>
+        <div class="card-actions">
+          <button type="button" class="btn-confirm" data-action="confirm">Confirmar dados</button>
+          <button type="button" class="btn-edit" data-action="edit" hidden>Editar</button>
+        </div>
+      </div>
+
+      <div class="card" data-card="branqueamentoHW" data-type="branqueamento" data-confirmed="false">
+        <div class="card-head"><h3>Branqueamento HW</h3><span class="badge" data-badge>Pendente</span></div>
+        <div class="field-grid">
+          <label class="field">Produção dia anterior
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAnterior" placeholder="3865,1"><span>tsa/d</span></div>
+          </label>
+          <label class="field">Produção atual
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAtual" placeholder="4000"><span>tsa/d</span></div>
+          </label>
+          <label class="field">Qualidade dia anterior
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="qualAnterior" placeholder="100"><span>% EP</span></div>
+          </label>
+        </div>
+        <div class="qual-toggle">
+          <label class="checkbox"><input type="checkbox" data-field="qualAtual100" checked> Qualidade atual: 100% EP</label>
+        </div>
+        <div class="qual-detail" hidden>
+          <label>Qualidade atual
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="qualAtualPct" placeholder="ex: 92"><span>% EP</span></div>
+          </label>
+          <label>Motivo da desclassificação
+            <textarea data-field="qualMotivo" placeholder="Descreva o motivo da desclassificação..."></textarea>
+          </label>
+        </div>
+        <div class="pend-row"><span>Pendências</span>
+          <div class="toggle-group" data-pend-toggle>
+            <button type="button" class="toggle-opt active" data-pend-value="sem">Sem</button>
+            <button type="button" class="toggle-opt" data-pend-value="com">Com</button>
+          </div>
+        </div>
+        <input type="hidden" data-field="pendValue" value="sem">
+        <textarea class="pend-detail" data-field="pendDetalhe" placeholder="Descreva a pendência..." hidden></textarea>
+        <div class="card-actions">
+          <button type="button" class="btn-confirm" data-action="confirm">Confirmar dados</button>
+          <button type="button" class="btn-edit" data-action="edit" hidden>Editar</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="column column-sw">
+      <h2>Fibra Longa — SW</h2>
+
+      <div class="card" data-card="digestorSW" data-type="digestor" data-confirmed="false">
+        <div class="card-head"><h3>Digestor SW</h3><span class="badge" data-badge>Pendente</span></div>
+        <div class="field-grid">
+          <label class="field">Produção dia anterior
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAnterior" placeholder="1451,5"><span>tsa/d</span></div>
+          </label>
+          <label class="field">Produção atual
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAtual" placeholder="1500"><span>tsa/d</span></div>
+          </label>
+          <label class="field">Média Kappa dia anterior
+            <input type="text" inputmode="decimal" data-field="kappaAnterior" placeholder="27,3">
+          </label>
+          <label class="field">Kappa atual
+            <input type="text" inputmode="decimal" data-field="kappaAtual" placeholder="21,35">
+          </label>
+        </div>
+        <div class="pend-row"><span>Pendências</span>
+          <div class="toggle-group" data-pend-toggle>
+            <button type="button" class="toggle-opt active" data-pend-value="sem">Sem</button>
+            <button type="button" class="toggle-opt" data-pend-value="com">Com</button>
+          </div>
+        </div>
+        <input type="hidden" data-field="pendValue" value="sem">
+        <textarea class="pend-detail" data-field="pendDetalhe" placeholder="Descreva a pendência..." hidden></textarea>
+        <div class="card-actions">
+          <button type="button" class="btn-confirm" data-action="confirm">Confirmar dados</button>
+          <button type="button" class="btn-edit" data-action="edit" hidden>Editar</button>
+        </div>
+      </div>
+
+      <div class="card" data-card="branqueamentoSW" data-type="branqueamento" data-confirmed="false">
+        <div class="card-head"><h3>Branqueamento SW</h3><span class="badge" data-badge>Pendente</span></div>
+        <div class="field-grid">
+          <label class="field">Produção dia anterior
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAnterior" placeholder="1346,1"><span>tsa/d</span></div>
+          </label>
+          <label class="field">Produção atual
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAtual" placeholder="1400"><span>tsa/d</span></div>
+          </label>
+          <label class="field">Qualidade dia anterior
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="qualAnterior" placeholder="100"><span>% EP</span></div>
+          </label>
+        </div>
+        <div class="qual-toggle">
+          <label class="checkbox"><input type="checkbox" data-field="qualAtual100" checked> Qualidade atual: 100% EP</label>
+        </div>
+        <div class="qual-detail" hidden>
+          <label>Qualidade atual
+            <div class="input-suffix"><input type="text" inputmode="decimal" data-field="qualAtualPct" placeholder="ex: 92"><span>% EP</span></div>
+          </label>
+          <label>Motivo da desclassificação
+            <textarea data-field="qualMotivo" placeholder="Descreva o motivo da desclassificação..."></textarea>
+          </label>
+        </div>
+        <div class="pend-row"><span>Pendências</span>
+          <div class="toggle-group" data-pend-toggle>
+            <button type="button" class="toggle-opt active" data-pend-value="sem">Sem</button>
+            <button type="button" class="toggle-opt" data-pend-value="com">Com</button>
+          </div>
+        </div>
+        <input type="hidden" data-field="pendValue" value="sem">
+        <textarea class="pend-detail" data-field="pendDetalhe" placeholder="Descreva a pendência..." hidden></textarea>
+        <div class="card-actions">
+          <button type="button" class="btn-confirm" data-action="confirm">Confirmar dados</button>
+          <button type="button" class="btn-edit" data-action="edit" hidden>Editar</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<div class="action-bar">
+  <span id="statusText">0 de 4 cards confirmados</span>
+  <button id="copyBtn" class="btn-primary" disabled>Copiar relatório</button>
+  <button id="resetBtn" class="btn-danger-ghost">Limpar tudo (todos)</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<div id="modalOverlay" class="modal-overlay hidden">
+  <div class="modal">
+    <h2>Entrar</h2>
+    <p>Use o mesmo e-mail e senha nas 3 máquinas para sincronizar o relatório.</p>
+    <div id="authLoggedOutBox">
+      <label class="field" style="margin-bottom:10px;">E-mail
+        <input type="text" id="authEmail" placeholder="operador@empresa.com">
+      </label>
+      <label class="field" style="margin-bottom:10px;">Senha
+        <input type="text" id="authPassword" placeholder="mínimo 6 caracteres">
+      </label>
+      <div class="modal-error" id="authError"></div>
+      <div class="modal-actions">
+        <button id="authCancelBtn" class="btn-edit">Cancelar</button>
+        <button id="authSignupBtn" class="btn-file">Criar conta</button>
+        <button id="authLoginBtn" class="btn-confirm">Entrar</button>
+      </div>
+    </div>
+    <div id="authLoggedInBox" class="hidden">
+      <p>Conectado como <strong id="authEmailDisplay"></strong></p>
+      <div class="modal-actions">
+        <button id="authCloseBtn" class="btn-edit">Fechar</button>
+        <button id="authLogoutBtn" class="btn-danger-ghost">Sair</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const CARD_LABELS = {digestorHW:'DIGESTOR HW', branqueamentoHW:'BRANQUEAMENTO HW', digestorSW:'DIGESTOR SW', branqueamentoSW:'BRANQUEAMENTO SW'};
+  const CARD_TYPES  = {digestorHW:'digestor', branqueamentoHW:'branqueamento', digestorSW:'digestor', branqueamentoSW:'branqueamento'};
+  const CARD_IDS = Object.keys(CARD_LABELS);
+  const COLLECTION = 'relatorioFibrasBranqueada';
+  const DOC_ID = 'current';
+
+  const debounceTimers = {};
+  const pendingWrites = new Set();
+  let db = null;
+
+  function defaultCard(type){
+    const base = {confirmed:false, prodAnterior:'', prodAtual:'', pendValue:'sem', pendDetalhe:''};
+    if(type === 'digestor'){ base.kappaAnterior = ''; base.kappaAtual = ''; }
+    else { base.qualAnterior = ''; base.qualAtual100 = true; base.qualAtualPct = ''; base.qualMotivo = ''; }
+    return base;
+  }
+  function defaultState(){
+    const cards = {};
+    CARD_IDS.forEach(id => cards[id] = defaultCard(CARD_TYPES[id]));
+    return {reportDate:'', cards};
+  }
+
+  function cardEl(id){ return document.querySelector('[data-card="'+id+'"]'); }
+  function val(card, field){ const el = card.querySelector('[data-field="'+field+'"]'); return el ? el.value : ''; }
+  function setVal(card, field, value){
+    const el = card.querySelector('[data-field="'+field+'"]');
+    if(el && el.value !== (value ?? '')) el.value = value ?? '';
+  }
+  function setDisabled(card, disabled){
+    card.querySelectorAll('input, textarea').forEach(el => el.disabled = disabled);
+    card.querySelectorAll('[data-pend-toggle] .toggle-opt').forEach(btn => btn.disabled = disabled);
+  }
+
+  function parseAndFormat(raw){
+    if(raw === null || raw === undefined) return null;
+    const s = raw.trim();
+    if(s === '') return null;
+    let normalized;
+    if(/,/.test(s) && /\./.test(s)) normalized = s.replace(/\./g,'').replace(',', '.');
+    else if(/,/.test(s)) normalized = s.replace(',', '.');
+    else normalized = s;
+    const num = parseFloat(normalized);
+    if(isNaN(num)) return null;
+    const fracPart = normalized.split('.')[1];
+    const decimals = fracPart ? Math.min(fracPart.length, 2) : 0;
+    return num.toLocaleString('pt-BR', {minimumFractionDigits: decimals, maximumFractionDigits: decimals});
+  }
+
+  function collectCardData(id){
+    const card = cardEl(id);
+    const type = CARD_TYPES[id];
+    const data = {
+      confirmed: card.dataset.confirmed === 'true',
+      prodAnterior: val(card,'prodAnterior'),
+      prodAtual: val(card,'prodAtual'),
+      pendValue: val(card,'pendValue'),
+      pendDetalhe: val(card,'pendDetalhe')
+    };
+    if(type === 'digestor'){
+      data.kappaAnterior = val(card,'kappaAnterior');
+      data.kappaAtual = val(card,'kappaAtual');
+    } else {
+      data.qualAnterior = val(card,'qualAnterior');
+      data.qualAtual100 = card.querySelector('[data-field="qualAtual100"]').checked;
+      data.qualAtualPct = val(card,'qualAtualPct');
+      data.qualMotivo = val(card,'qualMotivo');
+    }
+    return data;
+  }
+
+  function renderCard(id, data){
+    if(!data) data = defaultCard(CARD_TYPES[id]);
+    const card = cardEl(id);
+    const type = CARD_TYPES[id];
+    const focused = card.contains(document.activeElement);
+    if(!focused){
+      setVal(card,'prodAnterior', data.prodAnterior);
+      setVal(card,'prodAtual', data.prodAtual);
+      if(type === 'digestor'){
+        setVal(card,'kappaAnterior', data.kappaAnterior);
+        setVal(card,'kappaAtual', data.kappaAtual);
+      } else {
+        setVal(card,'qualAnterior', data.qualAnterior);
+        const cb = card.querySelector('[data-field="qualAtual100"]');
+        cb.checked = data.qualAtual100 !== false;
+        card.querySelector('.qual-detail').hidden = data.qualAtual100 !== false;
+        setVal(card,'qualAtualPct', data.qualAtualPct);
+        setVal(card,'qualMotivo', data.qualMotivo);
+      }
+      setVal(card,'pendDetalhe', data.pendDetalhe);
+      setVal(card,'pendValue', data.pendValue || 'sem');
+      card.querySelectorAll('[data-pend-toggle] .toggle-opt').forEach(btn => {
+        btn.classList.toggle('active', btn.dataset.pendValue === (data.pendValue || 'sem'));
+      });
+      card.querySelector('.pend-detail').hidden = (data.pendValue || 'sem') !== 'com';
+    }
+    const confirmed = !!data.confirmed;
+    card.dataset.confirmed = confirmed ? 'true' : 'false';
+    setDisabled(card, confirmed);
+    const badge = card.querySelector('[data-badge]');
+    badge.textContent = confirmed ? '✓ Confirmado' : 'Pendente';
+    badge.classList.toggle('confirmed', confirmed);
+    card.querySelector('[data-action="confirm"]').hidden = confirmed;
+    card.querySelector('[data-action="edit"]').hidden = !confirmed;
+    updateStatus();
+  }
+
+  function renderAll(state){
+    CARD_IDS.forEach(id => renderCard(id, (state.cards || {})[id]));
+    const dateInput = document.getElementById('reportDate');
+    if(state.reportDate && document.activeElement !== dateInput) dateInput.value = state.reportDate;
+  }
+
+  function updateStatus(){
+    const confirmed = CARD_IDS.filter(id => cardEl(id).dataset.confirmed === 'true').length;
+    document.getElementById('statusText').textContent = confirmed + ' de ' + CARD_IDS.length + ' cards confirmados';
+    document.getElementById('copyBtn').disabled = confirmed < 1;
+  }
+
+  function setSyncStatus(state, err){
+    const dot = document.getElementById('syncDot');
+    const text = document.getElementById('syncText');
+    dot.classList.remove('error','busy');
+    if(state === 'ok'){ text.textContent = 'Sincronizado'; }
+    else if(state === 'busy'){ dot.classList.add('busy'); text.textContent = 'Sincronizando...'; }
+    else if(state === 'offline'){ dot.classList.add('busy'); text.textContent = 'Sem conexão — dados salvos localmente até reconectar'; }
+    else { dot.classList.add('error'); text.textContent = 'Erro ao sincronizar' + (err ? ' — ' + err.message : ''); }
+  }
+
+  function showToast(msg){
+    const toast = document.getElementById('toast');
+    toast.textContent = msg;
+    toast.classList.add('show');
+    setTimeout(() => toast.classList.remove('show'), 2200);
+  }
+
+  // ---------- Firebase (Firestore + Auth) ----------
+  let docRef = null;
+  let auth = null;
+  let currentUser = null;
+  const configOk = firebaseConfig.apiKey && firebaseConfig.apiKey !== 'COLE_AQUI';
+
+  function initFirebase(){
+    if(!configOk){
+      document.getElementById('configWarning').classList.remove('hidden');
+      setSyncStatus('error', {message:'firebaseConfig não preenchido no arquivo'});
+      return;
+    }
+    try{
+      firebase.initializeApp(firebaseConfig);
+      db = firebase.firestore();
+      auth = firebase.auth();
+      docRef = db.collection(COLLECTION).doc(DOC_ID);
+
+      auth.onAuthStateChanged(user => {
+        currentUser = user;
+        if(user){
+          document.getElementById('authWarning').classList.add('hidden');
+          document.getElementById('authEmailDisplay').textContent = user.email;
+          document.getElementById('authLoggedOutBox').classList.add('hidden');
+          document.getElementById('authLoggedInBox').classList.remove('hidden');
+          docRef.onSnapshot(snap => {
+            const data = snap.data();
+            if(!data){ docRef.set(defaultState()); return; }
+            renderAll(data);
+            setSyncStatus('ok');
+          }, err => setSyncStatus('error', err));
+        } else {
+          document.getElementById('authWarning').classList.remove('hidden');
+          document.getElementById('authLoggedOutBox').classList.remove('hidden');
+          document.getElementById('authLoggedInBox').classList.add('hidden');
+          setSyncStatus('error', {message:'não autenticado'});
+        }
+      });
+    } catch(err){
+      db = null; docRef = null;
+      document.getElementById('configWarning').classList.remove('hidden');
+      setSyncStatus('error', err);
+    }
+  }
+
+  window.addEventListener('online', () => { if(currentUser) setSyncStatus('ok'); });
+  window.addEventListener('offline', () => setSyncStatus('offline'));
+
+  function writeCard(id){
+    if(!docRef || !currentUser) return;
+    pendingWrites.delete(id);
+    const patch = {}; patch['cards.' + id] = collectCardData(id);
+    docRef.set(patch, {merge:true}).catch(err => setSyncStatus('error', err));
+  }
+  function scheduleWrite(id){
+    pendingWrites.add(id);
+    clearTimeout(debounceTimers[id]);
+    debounceTimers[id] = setTimeout(() => writeCard(id), 800);
+  }
+
+  // ---------- Validação e texto do relatório ----------
+  function validateCard(card){
+    const type = card.dataset.type;
+    const missing = [];
+    if(!parseAndFormat(val(card,'prodAnterior'))) missing.push('Produção dia anterior');
+    if(!parseAndFormat(val(card,'prodAtual'))) missing.push('Produção atual');
+    if(type === 'digestor'){
+      if(!parseAndFormat(val(card,'kappaAnterior'))) missing.push('Média Kappa dia anterior');
+      if(!parseAndFormat(val(card,'kappaAtual'))) missing.push('Kappa atual');
+    } else {
+      if(!parseAndFormat(val(card,'qualAnterior'))) missing.push('Qualidade dia anterior');
+      const is100 = card.querySelector('[data-field="qualAtual100"]').checked;
+      if(!is100){
+        if(!parseAndFormat(val(card,'qualAtualPct'))) missing.push('Qualidade atual (%)');
+        if(!val(card,'qualMotivo').trim()) missing.push('Motivo da desclassificação');
+      }
+    }
+    const pendValue = val(card,'pendValue');
+    if(pendValue === 'com' && !val(card,'pendDetalhe').trim()) missing.push('Descrição da pendência');
+    return missing;
+  }
+
+  function buildCardText(id, card){
+    const label = CARD_LABELS[id];
+    const type = card.dataset.type;
+    const prodAnt = parseAndFormat(val(card,'prodAnterior'));
+    const prodAtu = parseAndFormat(val(card,'prodAtual'));
+    const pendValue = val(card,'pendValue');
+    const pendText = pendValue === 'com' ? ('Com — ' + val(card,'pendDetalhe').trim()) : 'Sem';
+    if(type === 'digestor'){
+      const kappaAnt = parseAndFormat(val(card,'kappaAnterior'));
+      const kappaAtu = parseAndFormat(val(card,'kappaAtual'));
+      return label + ':\n # Produção dia Anterior: ' + prodAnt + ' tsa/d\n # Produção atual: ' + prodAtu + ' tsa/d\n # Média Kappa dia anterior: ' + kappaAnt + '\n # Kappa atual: ' + kappaAtu + '\n # Pendências: ' + pendText;
+    } else {
+      const qualAnt = parseAndFormat(val(card,'qualAnterior'));
+      const is100 = card.querySelector('[data-field="qualAtual100"]').checked;
+      let qualAtuText;
+      if(is100) qualAtuText = '100% EP';
+      else { const p = parseAndFormat(val(card,'qualAtualPct')); qualAtuText = p + '% EP — Desclassificado: ' + val(card,'qualMotivo').trim(); }
+      return label + ':\n # Produção dia Anterior: ' + prodAnt + ' tsa/d\n # Produção atual: ' + prodAtu + ' tsa/d\n # Qualidade dia anterior: ' + qualAnt + '% EP\n # Qualidade atual: ' + qualAtuText + '\n # Pendências: ' + pendText;
+    }
+  }
+
+  // ---------- Eventos dos cards ----------
+  document.querySelectorAll('[data-pend-toggle]').forEach(group => {
+    group.addEventListener('click', e => {
+      const btn = e.target.closest('.toggle-opt');
+      if(!btn || btn.disabled) return;
+      const card = group.closest('.card');
+      const id = card.dataset.card;
+      group.querySelectorAll('.toggle-opt').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const value = btn.dataset.pendValue;
+      card.querySelector('[data-field="pendValue"]').value = value;
+      const detail = card.querySelector('.pend-detail');
+      detail.hidden = value !== 'com';
+      if(value !== 'com') detail.value = '';
+      writeCard(id);
+    });
+  });
+
+  document.querySelectorAll('[data-field="qualAtual100"]').forEach(checkbox => {
+    checkbox.addEventListener('change', e => {
+      const card = e.target.closest('.card');
+      const id = card.dataset.card;
+      const detail = card.querySelector('.qual-detail');
+      detail.hidden = e.target.checked;
+      if(e.target.checked){
+        card.querySelector('[data-field="qualAtualPct"]').value = '';
+        card.querySelector('[data-field="qualMotivo"]').value = '';
+      }
+      writeCard(id);
+    });
+  });
+
+  document.querySelectorAll('.card').forEach(card => {
+    const id = card.dataset.card;
+    const label = CARD_LABELS[id];
+    const confirmBtn = card.querySelector('[data-action="confirm"]');
+    const editBtn = card.querySelector('[data-action="edit"]');
+    const badge = card.querySelector('[data-badge]');
+
+    confirmBtn.addEventListener('click', () => {
+      const missing = validateCard(card);
+      if(missing.length){
+        alert('Preencha os campos obrigatórios antes de confirmar:\n\n' + missing.map(m => '• ' + m).join('\n'));
+        return;
+      }
+      const ok = window.confirm('Confirmar os dados de ' + label + '?\n\nOs campos ficarão bloqueados até você clicar em "Editar".');
+      if(!ok) return;
+      card.dataset.confirmed = 'true';
+      setDisabled(card, true);
+      badge.textContent = '✓ Confirmado';
+      badge.classList.add('confirmed');
+      confirmBtn.hidden = true;
+      editBtn.hidden = false;
+      updateStatus();
+      writeCard(id);
+    });
+
+    editBtn.addEventListener('click', () => {
+      const ok = window.confirm('Deseja editar os dados de ' + label + ' novamente?\n\nIsso desfará a confirmação deste card para todos.');
+      if(!ok) return;
+      card.dataset.confirmed = 'false';
+      setDisabled(card, false);
+      badge.textContent = 'Pendente';
+      badge.classList.remove('confirmed');
+      confirmBtn.hidden = false;
+      editBtn.hidden = true;
+      updateStatus();
+      writeCard(id);
+    });
+
+    card.querySelectorAll('input[type="text"], textarea').forEach(el => {
+      el.addEventListener('input', () => scheduleWrite(id));
+    });
+  });
+
+  document.getElementById('reportDate').addEventListener('change', e => {
+    if(docRef) docRef.set({reportDate: e.target.value}, {merge:true});
+  });
+
+  document.getElementById('copyBtn').addEventListener('click', () => {
+    const confirmedIds = CARD_IDS.filter(id => cardEl(id).dataset.confirmed === 'true');
+    if(confirmedIds.length < 1){ alert('Confirme ao menos um card antes de copiar.'); return; }
+    const dateVal = document.getElementById('reportDate').value;
+    let header = 'Linha Fibras Branqueada';
+    if(dateVal){ const [y,m,d] = dateVal.split('-'); header += '\nData: ' + d + '/' + m + '/' + y; }
+    if(confirmedIds.length < CARD_IDS.length){
+      const missing = CARD_IDS.filter(id => !confirmedIds.includes(id)).map(id => CARD_LABELS[id]);
+      header += '\n⚠ Relatório parcial — faltam confirmar: ' + missing.join(', ');
+    }
+    const sections = confirmedIds.map(id => buildCardText(id, cardEl(id)));
+    const fullText = header + '\n\n' + sections.join('\n\n');
+
+    function fallbackCopy(text){
+      const ta = document.createElement('textarea');
+      ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta); ta.focus(); ta.select();
+      try{ document.execCommand('copy'); showToast('Relatório copiado!'); }
+      catch(err){ alert('Não foi possível copiar automaticamente. Selecione e copie manualmente.'); }
+      document.body.removeChild(ta);
+    }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(fullText).then(() => showToast('Relatório copiado!')).catch(() => fallbackCopy(fullText));
+    } else fallbackCopy(fullText);
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    const ok = window.confirm('Isso vai apagar os dados de TODOS os operadores.\n\nTem certeza que deseja limpar tudo?');
+    if(!ok || !docRef) return;
+    docRef.set(defaultState()).then(() => {
+      document.getElementById('reportDate').value = '';
+      showToast('Dados limpos para todos.');
+    }).catch(err => alert('Erro ao limpar: ' + err.message));
+  });
+
+  window.addEventListener('beforeunload', function(e){
+    if(pendingWrites.size > 0){ e.preventDefault(); e.returnValue = ''; }
+  });
+
+  // ---------- Modal de login (engrenagem) ----------
+  const modalOverlay = document.getElementById('modalOverlay');
+  const authError = document.getElementById('authError');
+
+  function openModal(){
+    authError.textContent = '';
+    document.getElementById('authEmail').value = currentUser ? currentUser.email : '';
+    document.getElementById('authPassword').value = '';
+    modalOverlay.classList.remove('hidden');
+  }
+  function closeModal(){ modalOverlay.classList.add('hidden'); }
+
+  document.getElementById('gearBtn').addEventListener('click', openModal);
+  document.getElementById('authWarningBtn').addEventListener('click', openModal);
+  document.getElementById('authCancelBtn').addEventListener('click', closeModal);
+  document.getElementById('authCloseBtn').addEventListener('click', closeModal);
+  modalOverlay.addEventListener('click', e => { if(e.target === modalOverlay) closeModal(); });
+
+  document.getElementById('authLoginBtn').addEventListener('click', () => {
+    if(!auth) return;
+    const email = document.getElementById('authEmail').value.trim();
+    const pass = document.getElementById('authPassword').value;
+    authError.textContent = '';
+    auth.signInWithEmailAndPassword(email, pass)
+      .then(() => { closeModal(); showToast('Login realizado!'); })
+      .catch(err => authError.textContent = traduzErroAuth(err));
+  });
+
+  document.getElementById('authSignupBtn').addEventListener('click', () => {
+    if(!auth) return;
+    const email = document.getElementById('authEmail').value.trim();
+    const pass = document.getElementById('authPassword').value;
+    authError.textContent = '';
+    auth.createUserWithEmailAndPassword(email, pass)
+      .then(() => { closeModal(); showToast('Conta criada e conectada!'); })
+      .catch(err => authError.textContent = traduzErroAuth(err));
+  });
+
+  document.getElementById('authLogoutBtn').addEventListener('click', () => {
+    if(!auth) return;
+    auth.signOut().then(() => { closeModal(); showToast('Você saiu.'); });
+  });
+
+  function traduzErroAuth(err){
+    const map = {
+      'auth/invalid-email': 'E-mail inválido.',
+      'auth/user-not-found': 'Usuário não encontrado — crie uma conta.',
+      'auth/wrong-password': 'Senha incorreta.',
+      'auth/email-already-in-use': 'Esse e-mail já tem conta — use "Entrar".',
+      'auth/weak-password': 'Senha muito curta (mínimo 6 caracteres).',
+      'auth/invalid-credential': 'E-mail ou senha incorretos.'
+    };
+    return map[err.code] || err.message;
+  }
+
+  initFirebase();
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+  }
+})();
+</script>
+</body>
+</html>
