@@ -560,14 +560,24 @@
       auth = firebase.auth();
       docRef = db.collection(COLLECTION).doc(DOC_ID);
 
-      // O listener é criado UMA ÚNICA VEZ aqui — não dentro do onAuthStateChanged,
-      // pra nunca existir mais de um ouvinte ativo ao mesmo tempo (isso causava o
-      // bug de dado sumir: um ouvinte antigo, com dado desatualizado, sobrescrevia
-      // o que acabara de ser confirmado).
+      // O documento só é criado (com estado em branco) UMA VEZ, de forma explícita
+      // e autoritativa — nunca dentro do listener recorrente. Antes, qualquer
+      // leitura vazia (ex: cache local de um dispositivo novo, antes da rede
+      // responder) era tratada como "documento não existe" e apagava os dados
+      // de todo mundo. Agora só criamos se confirmarmos, via .get(), que o
+      // documento realmente não existe no servidor.
+      docRef.get({source:'server'}).catch(() => docRef.get()).then(snap => {
+        if(!snap.exists) return docRef.set(defaultState());
+      }).catch(() => {});
+
+      // O listener de sincronização é criado UMA ÚNICA VEZ aqui — não dentro do
+      // onAuthStateChanged, pra nunca existir mais de um ouvinte ativo ao mesmo
+      // tempo (isso já causava sobrescrita de dado recém-confirmado). E ele nunca
+      // apaga nada sozinho: se a leitura vier vazia, simplesmente ignora e espera
+      // a próxima atualização — só "Limpar tudo" apaga os dados de propósito.
       unsubscribeSnapshot = docRef.onSnapshot(snap => {
-        const data = snap.data();
-        if(!data){ docRef.set(defaultState()); return; }
-        renderAll(data);
+        if(!snap.exists) return;
+        renderAll(snap.data());
         setSyncStatus('ok');
       }, err => setSyncStatus('error', err));
 
