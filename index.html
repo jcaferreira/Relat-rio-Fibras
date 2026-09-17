@@ -69,7 +69,7 @@
   @media (max-width:640px){.dual-card-row{grid-template-columns:1fr;}}
   .card{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--hw);border-radius:var(--radius);padding:22px;margin-bottom:0;transition:border-color .2s ease, opacity .2s ease;}
   .card.card-sw{border-left-color:var(--sw);}
-  .card[data-confirmed="true"]{opacity:0.88;}
+
   .card-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
   .card-head h3{margin:0;font-size:24px;font-weight:600;}
   .badge{font-size:13px;padding:3px 10px;border-radius:20px;background:var(--panel-2);color:var(--text-dim);border:1px solid var(--line);white-space:nowrap;}
@@ -189,10 +189,6 @@
         </div>
         <input type="hidden" data-field="pendValue" value="sem">
         <textarea class="pend-detail" data-field="pendDetalhe" placeholder="Descreva a pendência..." hidden></textarea>
-        <div class="card-actions">
-          <button type="button" class="btn-confirm" data-action="confirm">Confirmar dados</button>
-          <button type="button" class="btn-edit" data-action="edit" hidden>Editar</button>
-        </div>
       </div>
 
       <div class="card card-sw" data-card="digestorSW" data-type="digestor" data-confirmed="false">
@@ -219,10 +215,6 @@
         </div>
         <input type="hidden" data-field="pendValue" value="sem">
         <textarea class="pend-detail" data-field="pendDetalhe" placeholder="Descreva a pendência..." hidden></textarea>
-        <div class="card-actions">
-          <button type="button" class="btn-confirm" data-action="confirm">Confirmar dados</button>
-          <button type="button" class="btn-edit" data-action="edit" hidden>Editar</button>
-        </div>
       </div>
     </div>
   </div>
@@ -273,10 +265,6 @@
       </div>
       <input type="hidden" data-field="pendValue" value="sem">
       <textarea class="pend-detail" data-field="pendDetalhe" placeholder="Descreva a pendência..." hidden></textarea>
-      <div class="card-actions">
-        <button type="button" class="btn-confirm" data-action="confirm">Confirmar dados</button>
-        <button type="button" class="btn-edit" data-action="edit" hidden>Editar</button>
-      </div>
     </div>
   </div>
 
@@ -326,10 +314,6 @@
       </div>
       <input type="hidden" data-field="pendValue" value="sem">
       <textarea class="pend-detail" data-field="pendDetalhe" placeholder="Descreva a pendência..." hidden></textarea>
-      <div class="card-actions">
-        <button type="button" class="btn-confirm" data-action="confirm">Confirmar dados</button>
-        <button type="button" class="btn-edit" data-action="edit" hidden>Editar</button>
-      </div>
     </div>
   </div>
 </div>
@@ -382,7 +366,7 @@
   let db = null;
 
   function defaultCard(type){
-    const base = {confirmed:false, prodAnterior:'', prodAtual:'', pendValue:'sem', pendDetalhe:''};
+    const base = {prodAnterior:'', prodAtual:'', pendValue:'sem', pendDetalhe:''};
     if(type === 'digestor'){ base.kappaAnterior = ''; base.kappaAtual = ''; }
     else { base.qualAnteriorMode = '100'; base.qualAnterior = ''; base.qualAnteriorMotivo = ''; base.qualAtualMode = 'EP'; base.qualMotivo = ''; }
     return base;
@@ -399,10 +383,7 @@
     const el = card.querySelector('[data-field="'+field+'"]');
     if(el && el.value !== (value ?? '')) el.value = value ?? '';
   }
-  function setDisabled(card, disabled){
-    card.querySelectorAll('input, textarea').forEach(el => el.disabled = disabled);
-    card.querySelectorAll('[data-pend-toggle] .toggle-opt').forEach(btn => btn.disabled = disabled);
-  }
+
 
   function parseAndFormat(raw){
     if(raw === null || raw === undefined) return null;
@@ -431,7 +412,6 @@
     const card = cardEl(id);
     const type = CARD_TYPES[id];
     const data = {
-      confirmed: card.dataset.confirmed === 'true',
       prodAnterior: val(card,'prodAnterior'),
       prodAtual: val(card,'prodAtual'),
       pendValue: val(card,'pendValue'),
@@ -454,10 +434,6 @@
     if(!data) data = defaultCard(CARD_TYPES[id]);
     const card = cardEl(id);
     const type = CARD_TYPES[id];
-    // Um card já confirmado NESTA máquina nunca tem seus campos sobrescritos por
-    // uma atualização remota — só muda se alguém destravar (Editar) em outra
-    // máquina, aí data.confirmed vem false e o card segue pro bloco normal abaixo.
-    if(card.dataset.confirmed === 'true' && data.confirmed){ return; }
     const focused = card.contains(document.activeElement);
     const dirty = pendingWrites.has(id);
     if(!focused && !dirty){
@@ -489,15 +465,16 @@
       });
       card.querySelector('.pend-detail').hidden = (data.pendValue || 'sem') !== 'com';
     }
-    const confirmed = !!data.confirmed;
-    card.dataset.confirmed = confirmed ? 'true' : 'false';
-    setDisabled(card, confirmed);
-    const badge = card.querySelector('[data-badge]');
-    badge.textContent = confirmed ? '✓ Confirmado' : 'Pendente';
-    badge.classList.toggle('confirmed', confirmed);
-    card.querySelector('[data-action="confirm"]').hidden = confirmed;
-    card.querySelector('[data-action="edit"]').hidden = !confirmed;
+    updateCardBadge(card);
     updateStatus();
+  }
+
+  function updateCardBadge(card){
+    const complete = validateCard(card).length === 0;
+    const badge = card.querySelector('[data-badge]');
+    badge.textContent = complete ? '✓ Preenchido' : 'Pendente';
+    badge.classList.toggle('confirmed', complete);
+    card.dataset.confirmed = complete ? 'true' : 'false';
   }
 
   function renderAll(state){
@@ -674,6 +651,8 @@
       detail.hidden = value !== 'com';
       if(value !== 'com') detail.value = '';
       writeCard(id);
+      updateCardBadge(card);
+      updateStatus();
     });
   });
 
@@ -698,50 +677,19 @@
         card.querySelector('[data-field="'+motivoField+'"]').value = '';
       }
       writeCard(id);
+      updateCardBadge(card);
+      updateStatus();
     });
-  });
-
-  document.querySelectorAll('.card').forEach(card => {
+  });  document.querySelectorAll('.card').forEach(card => {
     const id = card.dataset.card;
-    const label = CARD_LABELS[id];
-    const confirmBtn = card.querySelector('[data-action="confirm"]');
-    const editBtn = card.querySelector('[data-action="edit"]');
-    const badge = card.querySelector('[data-badge]');
-
-    confirmBtn.addEventListener('click', () => {
-      const missing = validateCard(card);
-      if(missing.length){
-        alert('Preencha os campos obrigatórios antes de confirmar:\n\n' + missing.map(m => '• ' + m).join('\n'));
-        return;
-      }
-      const ok = window.confirm('Confirmar os dados de ' + label + '?\n\nOs campos ficarão bloqueados até você clicar em "Editar".');
-      if(!ok) return;
-      card.dataset.confirmed = 'true';
-      setDisabled(card, true);
-      badge.textContent = '✓ Confirmado';
-      badge.classList.add('confirmed');
-      confirmBtn.hidden = true;
-      editBtn.hidden = false;
-      updateStatus();
-      writeCard(id);
-    });
-
-    editBtn.addEventListener('click', () => {
-      const ok = window.confirm('Deseja editar os dados de ' + label + ' novamente?\n\nIsso desfará a confirmação deste card para todos.');
-      if(!ok) return;
-      card.dataset.confirmed = 'false';
-      setDisabled(card, false);
-      badge.textContent = 'Pendente';
-      badge.classList.remove('confirmed');
-      confirmBtn.hidden = false;
-      editBtn.hidden = true;
-      updateStatus();
-      writeCard(id);
-    });
-
     card.querySelectorAll('input[type="text"], textarea').forEach(el => {
-      el.addEventListener('input', () => scheduleWrite(id));
+      el.addEventListener('input', () => {
+        scheduleWrite(id);
+        updateCardBadge(card);
+        updateStatus();
+      });
     });
+    updateCardBadge(card);
   });
 
   const reportDateInput = document.getElementById('reportDate');
@@ -753,10 +701,10 @@
 
   document.getElementById('copyBtn').addEventListener('click', () => {
     const confirmedIds = CARD_IDS.filter(id => cardEl(id).dataset.confirmed === 'true');
-    if(confirmedIds.length < 1){ alert('Confirme ao menos um card antes de copiar.'); return; }
+    if(confirmedIds.length < 1){ alert('Preencha ao menos um processo antes de copiar.'); return; }
     if(confirmedIds.length < CARD_IDS.length){
       const missing = CARD_IDS.filter(id => !confirmedIds.includes(id)).map(id => CARD_LABELS[id]);
-      alert('Atenção: os seguintes processos ainda não foram confirmados e NÃO vão entrar no relatório copiado:\n\n' + missing.map(m => '• ' + m).join('\n'));
+      alert('Atenção: os seguintes processos ainda estão incompletos e NÃO vão entrar no relatório copiado:\n\n' + missing.map(m => '• ' + m).join('\n'));
     }
     const dateVal = reportDateInput ? reportDateInput.value : '';
     let header = 'Linha Fibras Branqueada';

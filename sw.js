@@ -1,4 +1,4 @@
-const CACHE_NAME = 'rfb-cache-v2';
+const CACHE_NAME = 'rfb-cache-v1';
 const ASSETS = ['./', './index.html', './icon.svg', './manifest.json'];
 
 self.addEventListener('install', event => {
