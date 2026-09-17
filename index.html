@@ -454,6 +454,10 @@
     if(!data) data = defaultCard(CARD_TYPES[id]);
     const card = cardEl(id);
     const type = CARD_TYPES[id];
+    // Um card já confirmado NESTA máquina nunca tem seus campos sobrescritos por
+    // uma atualização remota — só muda se alguém destravar (Editar) em outra
+    // máquina, aí data.confirmed vem false e o card segue pro bloco normal abaixo.
+    if(card.dataset.confirmed === 'true' && data.confirmed){ return; }
     const focused = card.contains(document.activeElement);
     if(!focused){
       setVal(card,'prodAnterior', data.prodAnterior);
@@ -541,6 +545,7 @@
   let docRef = null;
   let auth = null;
   let currentUser = null;
+  let unsubscribeSnapshot = null;
   const configOk = firebaseConfig.apiKey && firebaseConfig.apiKey !== 'COLE_AQUI';
 
   function initFirebase(){
@@ -555,6 +560,17 @@
       auth = firebase.auth();
       docRef = db.collection(COLLECTION).doc(DOC_ID);
 
+      // O listener é criado UMA ÚNICA VEZ aqui — não dentro do onAuthStateChanged,
+      // pra nunca existir mais de um ouvinte ativo ao mesmo tempo (isso causava o
+      // bug de dado sumir: um ouvinte antigo, com dado desatualizado, sobrescrevia
+      // o que acabara de ser confirmado).
+      unsubscribeSnapshot = docRef.onSnapshot(snap => {
+        const data = snap.data();
+        if(!data){ docRef.set(defaultState()); return; }
+        renderAll(data);
+        setSyncStatus('ok');
+      }, err => setSyncStatus('error', err));
+
       auth.onAuthStateChanged(user => {
         currentUser = user;
         const authWarning = document.getElementById('authWarning');
@@ -563,12 +579,6 @@
           document.getElementById('authEmailDisplay').textContent = user.email;
           document.getElementById('authLoggedOutBox').classList.add('hidden');
           document.getElementById('authLoggedInBox').classList.remove('hidden');
-          docRef.onSnapshot(snap => {
-            const data = snap.data();
-            if(!data){ docRef.set(defaultState()); return; }
-            renderAll(data);
-            setSyncStatus('ok');
-          }, err => setSyncStatus('error', err));
         } else {
           if(authWarning) authWarning.classList.remove('hidden');
           document.getElementById('authLoggedOutBox').classList.remove('hidden');
@@ -639,7 +649,7 @@
       const qualAntText = modeAnt === '100' ? '100% EP' : (parseAndFormat(val(card,'qualAnterior')) + '% EP — Desclassificado: ' + val(card,'qualAnteriorMotivo').trim());
 
       const modeAtu = val(card,'qualAtualMode') || 'EP';
-      const qualAtuText = modeAtu === 'EP' ? 'EP' : ('Não EP — Desclassificado: ' + val(card,'qualMotivo').trim());
+      const qualAtuText = modeAtu === 'EP' ? 'EP' : val(card,'qualMotivo').trim();
 
       return label + ':\n # Produção dia Anterior: ' + prodAnt + ' tsa/d\n # Produção atual: ' + prodAtu + ' tsa/d\n # Qualidade dia anterior: ' + qualAntText + '\n # Qualidade atual: ' + qualAtuText + '\n # Pendências: ' + pendText;
     }
