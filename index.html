@@ -550,20 +550,15 @@
       auth = firebase.auth();
       docRef = db.collection(COLLECTION).doc(DOC_ID);
 
-      // O listener de sincronização é criado UMA ÚNICA VEZ aqui — não dentro do
-      // onAuthStateChanged, pra nunca existir mais de um ouvinte ativo ao mesmo
-      // tempo (isso já causava sobrescrita de dado recém-confirmado). Ele nunca
-      // cria nem apaga nada sozinho: se o documento ainda não existe, a tela já
-      // nasce em branco (os campos HTML já começam vazios) — não precisa criar
-      // nada de antemão. O documento é criado sozinho, com segurança, na
-      // primeira vez que alguém confirma um card (writeCard usa merge:true, que
-      // cria o documento se ele não existir). Só "Limpar tudo" apaga de propósito.
-      unsubscribeSnapshot = docRef.onSnapshot(snap => {
-        if(!snap.exists) return;
-        renderAll(snap.data());
-        setSyncStatus('ok');
-      }, err => setSyncStatus('error', err));
-
+      // O listener só é criado DEPOIS que o login é confirmado (dentro do
+      // onAuthStateChanged) — nunca antes. Criar antes do login terminar de
+      // ser restaurado era uma corrida contra o próprio Firebase: se a leitura
+      // acontecesse um instante antes da sessão estar pronta, as regras negavam
+      // o acesso e o listener morria ali, sem tentar de novo — daí os dados
+      // sumirem ao recarregar ou abrir em outra máquina.
+      // Um guard (unsubscribeSnapshot) garante que ele só é criado UMA VEZ por
+      // sessão de login — não recria a cada mudança de estado — e é desligado
+      // no logout, pra poder recriar limpo se logar de novo depois.
       auth.onAuthStateChanged(user => {
         currentUser = user;
         const authWarning = document.getElementById('authWarning');
@@ -572,10 +567,18 @@
           document.getElementById('authEmailDisplay').textContent = user.email;
           document.getElementById('authLoggedOutBox').classList.add('hidden');
           document.getElementById('authLoggedInBox').classList.remove('hidden');
+          if(!unsubscribeSnapshot){
+            unsubscribeSnapshot = docRef.onSnapshot(snap => {
+              if(!snap.exists) return;
+              renderAll(snap.data());
+              setSyncStatus('ok');
+            }, err => setSyncStatus('error', err));
+          }
         } else {
           if(authWarning) authWarning.classList.remove('hidden');
           document.getElementById('authLoggedOutBox').classList.remove('hidden');
           document.getElementById('authLoggedInBox').classList.add('hidden');
+          if(unsubscribeSnapshot){ unsubscribeSnapshot(); unsubscribeSnapshot = null; }
           setSyncStatus('error', {message:'não autenticado'});
         }
       });
