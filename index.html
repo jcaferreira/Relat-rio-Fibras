@@ -372,10 +372,17 @@
   const CARD_IDS = Object.keys(CARD_LABELS);
   const COLLECTION = 'relatorioFibrasBranqueada';
   const DOC_ID = 'current';
+  const LS_KEY = 'rfbEstado';
 
-  const debounceTimers = {};
-  const pendingWrites = new Set();
   let db = null;
+
+  function loadLocal(){
+    try{
+      const raw = localStorage.getItem(LS_KEY);
+      if(raw){ const parsed = JSON.parse(raw); if(parsed && parsed.cards) return parsed; }
+    } catch(e){}
+    return null;
+  }
 
   function defaultCard(type){
     const base = {salvo:false, prodAnterior:'', prodAtual:'', pendValue:'sem', pendDetalhe:''};
@@ -386,8 +393,12 @@
   function defaultState(){
     const cards = {};
     CARD_IDS.forEach(id => cards[id] = defaultCard(CARD_TYPES[id]));
-    return {reportDate:'', cards};
+    return {reportDate:'', cards, updatedAt:0};
   }
+
+  // ---------- Estado local: fonte da verdade — nunca depende do Firebase ----------
+  let appState = loadLocal() || defaultState();
+  renderAll(appState); // popula a tela na hora, sem esperar rede nem login
 
   function cardEl(id){ return document.querySelector('[data-card="'+id+'"]'); }
   function val(card, field){ const el = card.querySelector('[data-field="'+field+'"]'); return el ? el.value : ''; }
@@ -448,8 +459,7 @@
     const card = cardEl(id);
     const type = CARD_TYPES[id];
     const focused = card.contains(document.activeElement);
-    const dirty = pendingWrites.has(id);
-    if(!focused && !dirty){
+    if(!focused){
       setVal(card,'prodAnterior', data.prodAnterior);
       setVal(card,'prodAtual', data.prodAtual);
       if(type === 'digestor'){
@@ -550,15 +560,11 @@
       auth = firebase.auth();
       docRef = db.collection(COLLECTION).doc(DOC_ID);
 
-      // O listener só é criado DEPOIS que o login é confirmado (dentro do
-      // onAuthStateChanged) — nunca antes. Criar antes do login terminar de
-      // ser restaurado era uma corrida contra o próprio Firebase: se a leitura
-      // acontecesse um instante antes da sessão estar pronta, as regras negavam
-      // o acesso e o listener morria ali, sem tentar de novo — daí os dados
-      // sumirem ao recarregar ou abrir em outra máquina.
-      // Um guard (unsubscribeSnapshot) garante que ele só é criado UMA VEZ por
-      // sessão de login — não recria a cada mudança de estado — e é desligado
-      // no logout, pra poder recriar limpo se logar de novo depois.
+      // Padrão local-first: o estado já está na tela (via localStorage) desde
+      // o primeiro instante, sem depender do Firebase. Ao logar, buscamos uma
+      // vez e comparamos por data/hora (updatedAt) — só adota o que veio da
+      // nuvem se for mais novo que o que já está aqui; senão, empurra o local
+      // pra nuvem. Isso evita qualquer corrida apagando dado local por engano.
       auth.onAuthStateChanged(user => {
         currentUser = user;
         const authWarning = document.getElementById('authWarning');
@@ -567,10 +573,33 @@
           document.getElementById('authEmailDisplay').textContent = user.email;
           document.getElementById('authLoggedOutBox').classList.add('hidden');
           document.getElementById('authLoggedInBox').classList.remove('hidden');
+
+          docRef.get().then(snap => {
+            if(snap.exists){
+              const remote = snap.data();
+              if((remote.updatedAt||0) > (appState.updatedAt||0)){
+                appState = remote;
+                try{ localStorage.setItem(LS_KEY, JSON.stringify(appState)); } catch(e){}
+                renderAll(appState);
+              } else {
+                pushToCloudNow();
+              }
+            } else {
+              pushToCloudNow();
+            }
+            setSyncStatus('ok');
+          }).catch(err => setSyncStatus('error', err));
+
           if(!unsubscribeSnapshot){
             unsubscribeSnapshot = docRef.onSnapshot(snap => {
               if(!snap.exists) return;
-              renderAll(snap.data());
+              const remote = snap.data();
+              if(remote.updatedAt && remote.updatedAt === lastPushedAt) return; // eco do nosso próprio envio
+              if((remote.updatedAt||0) > (appState.updatedAt||0)){
+                appState = remote;
+                try{ localStorage.setItem(LS_KEY, JSON.stringify(appState)); } catch(e){}
+                renderAll(appState);
+              }
               setSyncStatus('ok');
             }, err => setSyncStatus('error', err));
           }
@@ -595,28 +624,34 @@
   let lastWriteErrorAlert = 0;
   function alertWriteError(err){
     const now = Date.now();
-    if(now - lastWriteErrorAlert < 4000) return; // evita alerta repetido a cada digitação
+    if(now - lastWriteErrorAlert < 4000) return; // evita alerta repetido
     lastWriteErrorAlert = now;
-    alert('Não foi possível salvar no Firebase — os dados NÃO foram gravados.\n\nMotivo: ' + err.message + '\n\nConfira: você está logado (engrenagem)? As Regras do Firestore permitem escrita?');
+    alert('Os dados estão salvos neste computador, mas não foi possível sincronizar com o Firebase.\n\nMotivo: ' + err.message + '\n\nConfira: você está logado (engrenagem)? As Regras do Firestore permitem escrita?');
   }
-  function writeCard(id){
-    if(!docRef){ return Promise.resolve(false); }
-    if(!currentUser){
-      alert('Não foi possível salvar: você não está logado. Abra a engrenagem e entre com seu e-mail e senha.');
-      return Promise.resolve(false);
-    }
-    pendingWrites.delete(id);
-    const patch = {}; patch['cards.' + id] = collectCardData(id);
-    return docRef.set(patch, {merge:true}).then(() => { setSyncStatus('ok'); return true; }).catch(err => {
-      setSyncStatus('error', err);
-      alertWriteError(err);
-      return false;
-    });
+
+  // ---------- Persistência: localStorage é instantâneo e nunca falha;
+  // a nuvem é uma camada extra por cima, em segundo plano. ----------
+  let pushTimer = null, lastPushedAt = 0;
+  function persist(immediate){
+    appState.updatedAt = Date.now();
+    try{ localStorage.setItem(LS_KEY, JSON.stringify(appState)); } catch(e){}
+    if(immediate) pushToCloudNow(); else scheduleCloudPush();
   }
-  function scheduleWrite(id){
-    pendingWrites.add(id);
-    clearTimeout(debounceTimers[id]);
-    debounceTimers[id] = setTimeout(() => writeCard(id), 800);
+  function pushToCloudNow(){
+    if(!currentUser || !docRef) return;
+    clearTimeout(pushTimer);
+    const ts = appState.updatedAt;
+    lastPushedAt = ts;
+    docRef.set(appState).then(() => setSyncStatus('ok')).catch(err => { setSyncStatus('error', err); alertWriteError(err); });
+  }
+  function scheduleCloudPush(){
+    if(!currentUser || !docRef) return;
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(pushToCloudNow, 700);
+  }
+  function saveCard(id){
+    appState.cards[id] = collectCardData(id);
+    persist();
   }
 
   // ---------- Validação e texto do relatório ----------
@@ -681,7 +716,7 @@
       detail.hidden = value !== 'com';
       if(value !== 'com') detail.value = '';
       card.dataset.saved = 'false';
-      writeCard(id);
+      saveCard(id);
       applyCardSavedState(card, false);
       updateStatus();
     });
@@ -707,7 +742,8 @@
         if(valueField) card.querySelector('[data-field="'+valueField+'"]').value = '';
         card.querySelector('[data-field="'+motivoField+'"]').value = '';
       }
-      writeCard(id);
+      card.dataset.saved = 'false';
+      saveCard(id);
       applyCardSavedState(card, false);
       updateStatus();
     });
@@ -718,7 +754,7 @@
     card.querySelectorAll('input[type="text"], textarea').forEach(el => {
       el.addEventListener('input', () => {
         card.dataset.saved = 'false';
-        scheduleWrite(id);
+        saveCard(id);
         applyCardSavedState(card, false);
         updateStatus();
       });
@@ -733,15 +769,8 @@
       card.dataset.saved = 'true';
       applyCardSavedState(card, true);
       updateStatus();
-      writeCard(id).then(ok => {
-        if(ok){
-          showToast('Dados salvos!');
-        } else {
-          card.dataset.saved = 'false';
-          applyCardSavedState(card, false);
-          updateStatus();
-        }
-      });
+      saveCard(id);
+      showToast('Dados salvos!');
     });
     applyCardSavedState(card, card.dataset.saved === 'true');
   });
@@ -749,7 +778,8 @@
   const reportDateInput = document.getElementById('reportDate');
   if(reportDateInput){
     reportDateInput.addEventListener('change', e => {
-      if(docRef) docRef.set({reportDate: e.target.value}, {merge:true});
+      appState.reportDate = e.target.value;
+      persist();
     });
   }
 
@@ -781,15 +811,12 @@
 
   document.getElementById('resetBtn').addEventListener('click', () => {
     const ok = window.confirm('Isso vai apagar os dados de TODOS os operadores.\n\nTem certeza que deseja limpar tudo?');
-    if(!ok || !docRef) return;
-    docRef.set(defaultState()).then(() => {
-      if(reportDateInput) reportDateInput.value = '';
-      showToast('Dados limpos para todos.');
-    }).catch(err => alert('Erro ao limpar: ' + err.message));
-  });
-
-  window.addEventListener('beforeunload', function(e){
-    if(pendingWrites.size > 0){ e.preventDefault(); e.returnValue = ''; }
+    if(!ok) return;
+    appState = defaultState();
+    persist(true);
+    renderAll(appState);
+    if(reportDateInput) reportDateInput.value = '';
+    showToast('Dados limpos para todos.');
   });
 
   // ---------- Modal de login (engrenagem) ----------
