@@ -652,9 +652,21 @@
     clearTimeout(pushTimer);
     pushTimer = setTimeout(pushToCloudNow, 700);
   }
-  function saveCard(id){
+
+  // Rede de segurança: se sobrar algum envio pendente (dentro daquele atraso de
+  // 0,7s) e a pessoa trocar de aba ou fechar a página, manda na hora em vez de
+  // esperar — evita perder o último dado editado por causa do timing.
+  function flushPendingPush(){
+    if(pushTimer){ clearTimeout(pushTimer); pushToCloudNow(); }
+  }
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'hidden') flushPendingPush();
+  });
+  window.addEventListener('pagehide', flushPendingPush);
+  window.addEventListener('beforeunload', flushPendingPush);
+  function saveCard(id, immediate){
     appState.cards[id] = collectCardData(id);
-    persist();
+    persist(immediate);
   }
 
   // ---------- Validação e texto do relatório ----------
@@ -780,7 +792,7 @@
           card.dataset.saved = 'true';
           applyCardSavedState(card, true);
           updateStatus();
-          saveCard(id);
+          saveCard(id, true);
           showToast('Dados salvos!');
         } catch(e){ console.error('Erro ao salvar o card', id, e); alert('Erro ao salvar: ' + e.message); }
       });
