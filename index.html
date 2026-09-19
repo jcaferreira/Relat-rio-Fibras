@@ -592,11 +592,26 @@
   window.addEventListener('online', () => { if(currentUser) setSyncStatus('ok'); });
   window.addEventListener('offline', () => setSyncStatus('offline'));
 
+  let lastWriteErrorAlert = 0;
+  function alertWriteError(err){
+    const now = Date.now();
+    if(now - lastWriteErrorAlert < 4000) return; // evita alerta repetido a cada digitação
+    lastWriteErrorAlert = now;
+    alert('Não foi possível salvar no Firebase — os dados NÃO foram gravados.\n\nMotivo: ' + err.message + '\n\nConfira: você está logado (engrenagem)? As Regras do Firestore permitem escrita?');
+  }
   function writeCard(id){
-    if(!docRef || !currentUser) return;
+    if(!docRef){ return Promise.resolve(false); }
+    if(!currentUser){
+      alert('Não foi possível salvar: você não está logado. Abra a engrenagem e entre com seu e-mail e senha.');
+      return Promise.resolve(false);
+    }
     pendingWrites.delete(id);
     const patch = {}; patch['cards.' + id] = collectCardData(id);
-    docRef.set(patch, {merge:true}).catch(err => setSyncStatus('error', err));
+    return docRef.set(patch, {merge:true}).then(() => { setSyncStatus('ok'); return true; }).catch(err => {
+      setSyncStatus('error', err);
+      alertWriteError(err);
+      return false;
+    });
   }
   function scheduleWrite(id){
     pendingWrites.add(id);
@@ -718,8 +733,15 @@
       card.dataset.saved = 'true';
       applyCardSavedState(card, true);
       updateStatus();
-      writeCard(id);
-      showToast('Dados salvos!');
+      writeCard(id).then(ok => {
+        if(ok){
+          showToast('Dados salvos!');
+        } else {
+          card.dataset.saved = 'false';
+          applyCardSavedState(card, false);
+          updateStatus();
+        }
+      });
     });
     applyCardSavedState(card, card.dataset.saved === 'true');
   });
