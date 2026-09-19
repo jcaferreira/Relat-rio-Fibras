@@ -398,7 +398,7 @@
 
   // ---------- Estado local: fonte da verdade — nunca depende do Firebase ----------
   let appState = loadLocal() || defaultState();
-  renderAll(appState); // popula a tela na hora, sem esperar rede nem login
+  try{ renderAll(appState); } catch(e){ console.error('Erro na primeira renderização', e); } // popula a tela na hora, sem esperar rede nem login
 
   function cardEl(id){ return document.querySelector('[data-card="'+id+'"]'); }
   function val(card, field){ const el = card.querySelector('[data-field="'+field+'"]'); return el ? el.value : ''; }
@@ -500,7 +500,10 @@
   }
 
   function renderAll(state){
-    CARD_IDS.forEach(id => renderCard(id, (state.cards || {})[id]));
+    CARD_IDS.forEach(id => {
+      try{ renderCard(id, (state.cards || {})[id]); }
+      catch(e){ console.error('Erro ao renderizar o card', id, e); }
+    });
     const dateInput = document.getElementById('reportDate');
     if(dateInput && state.reportDate && document.activeElement !== dateInput) dateInput.value = state.reportDate;
   }
@@ -704,75 +707,85 @@
   // ---------- Eventos dos cards ----------
   document.querySelectorAll('[data-pend-toggle]').forEach(group => {
     group.addEventListener('click', e => {
-      const btn = e.target.closest('.toggle-opt');
-      if(!btn || btn.disabled) return;
-      const card = group.closest('.card');
-      const id = card.dataset.card;
-      group.querySelectorAll('.toggle-opt').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const value = btn.dataset.pendValue;
-      card.querySelector('[data-field="pendValue"]').value = value;
-      const detail = card.querySelector('.pend-detail');
-      detail.hidden = value !== 'com';
-      if(value !== 'com') detail.value = '';
-      card.dataset.saved = 'false';
-      saveCard(id);
-      applyCardSavedState(card, false);
-      updateStatus();
+      try{
+        const btn = e.target.closest('.toggle-opt');
+        if(!btn || btn.disabled) return;
+        const card = group.closest('.card');
+        const id = card.dataset.card;
+        group.querySelectorAll('.toggle-opt').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const value = btn.dataset.pendValue;
+        card.querySelector('[data-field="pendValue"]').value = value;
+        const detail = card.querySelector('.pend-detail');
+        detail.hidden = value !== 'com';
+        if(value !== 'com') detail.value = '';
+        card.dataset.saved = 'false';
+        saveCard(id);
+        applyCardSavedState(card, false);
+        updateStatus();
+      } catch(err){ console.error('Erro no toggle de pendência', err); }
     });
   });
 
   document.querySelectorAll('[data-qual-toggle]').forEach(group => {
     group.addEventListener('click', e => {
-      const btn = e.target.closest('.toggle-opt');
-      if(!btn || btn.disabled) return;
-      const card = group.closest('.card');
-      const id = card.dataset.card;
-      const which = group.dataset.qualToggle; // 'anterior' ou 'atual'
-      group.querySelectorAll('.toggle-opt').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const mode = btn.dataset.qualValue; // '100' ou 'outro'
-      const modeField = which === 'anterior' ? 'qualAnteriorMode' : 'qualAtualMode';
-      const valueField = which === 'anterior' ? 'qualAnterior' : null;
-      const motivoField = which === 'anterior' ? 'qualAnteriorMotivo' : 'qualMotivo';
-      card.querySelector('[data-field="'+modeField+'"]').value = mode;
-      const detail = card.querySelector('[data-qual-detail="'+which+'"]');
-      detail.hidden = mode !== 'outro';
-      if(mode !== 'outro'){
-        if(valueField) card.querySelector('[data-field="'+valueField+'"]').value = '';
-        card.querySelector('[data-field="'+motivoField+'"]').value = '';
-      }
-      card.dataset.saved = 'false';
-      saveCard(id);
-      applyCardSavedState(card, false);
-      updateStatus();
-    });
-  });
-
-  document.querySelectorAll('.card').forEach(card => {
-    const id = card.dataset.card;
-    card.querySelectorAll('input[type="text"], textarea').forEach(el => {
-      el.addEventListener('input', () => {
+      try{
+        const btn = e.target.closest('.toggle-opt');
+        if(!btn || btn.disabled) return;
+        const card = group.closest('.card');
+        const id = card.dataset.card;
+        const which = group.dataset.qualToggle; // 'anterior' ou 'atual'
+        group.querySelectorAll('.toggle-opt').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const mode = btn.dataset.qualValue; // '100'/'EP' ou 'outro'
+        const modeField = which === 'anterior' ? 'qualAnteriorMode' : 'qualAtualMode';
+        const valueField = which === 'anterior' ? 'qualAnterior' : null;
+        const motivoField = which === 'anterior' ? 'qualAnteriorMotivo' : 'qualMotivo';
+        card.querySelector('[data-field="'+modeField+'"]').value = mode;
+        const detail = card.querySelector('[data-qual-detail="'+which+'"]');
+        detail.hidden = mode !== 'outro';
+        if(mode !== 'outro'){
+          if(valueField) card.querySelector('[data-field="'+valueField+'"]').value = '';
+          card.querySelector('[data-field="'+motivoField+'"]').value = '';
+        }
         card.dataset.saved = 'false';
         saveCard(id);
         applyCardSavedState(card, false);
         updateStatus();
+      } catch(err){ console.error('Erro no toggle de qualidade', err); }
+    });
+  });
+
+  document.querySelectorAll('.card').forEach(card => {
+    try{
+      const id = card.dataset.card;
+      card.querySelectorAll('input[type="text"], textarea').forEach(el => {
+        el.addEventListener('input', () => {
+          try{
+            card.dataset.saved = 'false';
+            saveCard(id);
+            applyCardSavedState(card, false);
+            updateStatus();
+          } catch(e){ console.error('Erro ao salvar o card', id, e); }
+        });
       });
-    });
-    const saveBtn = card.querySelector('[data-action="save"]');
-    saveBtn.addEventListener('click', () => {
-      const missing = validateCard(card);
-      if(missing.length){
-        alert('Preencha os campos obrigatórios antes de salvar:\n\n' + missing.map(m => '• ' + m).join('\n'));
-        return;
-      }
-      card.dataset.saved = 'true';
-      applyCardSavedState(card, true);
-      updateStatus();
-      saveCard(id);
-      showToast('Dados salvos!');
-    });
-    applyCardSavedState(card, card.dataset.saved === 'true');
+      const saveBtn = card.querySelector('[data-action="save"]');
+      saveBtn.addEventListener('click', () => {
+        try{
+          const missing = validateCard(card);
+          if(missing.length){
+            alert('Preencha os campos obrigatórios antes de salvar:\n\n' + missing.map(m => '• ' + m).join('\n'));
+            return;
+          }
+          card.dataset.saved = 'true';
+          applyCardSavedState(card, true);
+          updateStatus();
+          saveCard(id);
+          showToast('Dados salvos!');
+        } catch(e){ console.error('Erro ao salvar o card', id, e); alert('Erro ao salvar: ' + e.message); }
+      });
+      applyCardSavedState(card, card.dataset.saved === 'true');
+    } catch(e){ console.error('Erro ao preparar o card', card.dataset.card, e); }
   });
 
   const reportDateInput = document.getElementById('reportDate');
@@ -886,7 +899,7 @@
     return map[err.code] || err.message;
   }
 
-  initFirebase();
+  try{ initFirebase(); } catch(e){ console.error('Erro ao iniciar o Firebase', e); }
 
   if('serviceWorker' in navigator){
     window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
