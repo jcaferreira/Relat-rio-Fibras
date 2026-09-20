@@ -385,7 +385,7 @@
   }
 
   function defaultCard(type){
-    const base = {salvo:false, prodAnterior:'', prodAtual:'', pendValue:'sem', pendDetalhe:''};
+    const base = {salvo:false, updatedAt:0, prodAnterior:'', prodAtual:'', pendValue:'sem', pendDetalhe:''};
     if(type === 'digestor'){ base.kappaAnterior = ''; base.kappaAtual = ''; }
     else { base.qualAnteriorMode = '100'; base.qualAnterior = ''; base.qualAnteriorMotivo = ''; base.qualAtualMode = 'EP'; base.qualMotivo = ''; }
     return base;
@@ -436,6 +436,7 @@
     const type = CARD_TYPES[id];
     const data = {
       salvo: card.dataset.saved === 'true',
+      updatedAt: Date.now(),
       prodAnterior: val(card,'prodAnterior'),
       prodAtual: val(card,'prodAtual'),
       pendValue: val(card,'pendValue'),
@@ -568,6 +569,26 @@
       // vez e comparamos por data/hora (updatedAt) — só adota o que veio da
       // nuvem se for mais novo que o que já está aqui; senão, empurra o local
       // pra nuvem. Isso evita qualquer corrida apagando dado local por engano.
+      // A comparação é POR CARD (cada card tem seu próprio updatedAt) — nunca
+      // troca o documento inteiro de uma vez, então um card com dado antigo na
+      // nuvem nunca apaga outro card que acabou de ser salvo aqui.
+      function mergeRemote(remote){
+        let changed = false;
+        CARD_IDS.forEach(id => {
+          const remoteCard = remote.cards && remote.cards[id];
+          const localCard = appState.cards[id];
+          if(remoteCard && (!localCard || (remoteCard.updatedAt||0) > (localCard.updatedAt||0))){
+            appState.cards[id] = remoteCard;
+            changed = true;
+          }
+        });
+        if(remote.reportDate && !appState.reportDate){ appState.reportDate = remote.reportDate; changed = true; }
+        if(changed){
+          try{ localStorage.setItem(LS_KEY, JSON.stringify(appState)); } catch(e){}
+          renderAll(appState);
+        }
+      }
+
       auth.onAuthStateChanged(user => {
         currentUser = user;
         const authWarning = document.getElementById('authWarning');
@@ -578,18 +599,8 @@
           document.getElementById('authLoggedInBox').classList.remove('hidden');
 
           docRef.get().then(snap => {
-            if(snap.exists){
-              const remote = snap.data();
-              if((remote.updatedAt||0) > (appState.updatedAt||0)){
-                appState = remote;
-                try{ localStorage.setItem(LS_KEY, JSON.stringify(appState)); } catch(e){}
-                renderAll(appState);
-              } else {
-                pushToCloudNow();
-              }
-            } else {
-              pushToCloudNow();
-            }
+            if(snap.exists) mergeRemote(snap.data());
+            pushToCloudNow(); // garante que o que ficou local (já mesclado) também vai pra nuvem
             setSyncStatus('ok');
           }).catch(err => setSyncStatus('error', err));
 
@@ -598,11 +609,7 @@
               if(!snap.exists) return;
               const remote = snap.data();
               if(remote.updatedAt && remote.updatedAt === lastPushedAt) return; // eco do nosso próprio envio
-              if((remote.updatedAt||0) > (appState.updatedAt||0)){
-                appState = remote;
-                try{ localStorage.setItem(LS_KEY, JSON.stringify(appState)); } catch(e){}
-                renderAll(appState);
-              }
+              mergeRemote(remote);
               setSyncStatus('ok');
             }, err => setSyncStatus('error', err));
           }
