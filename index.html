@@ -358,6 +358,7 @@
     <div id="authLoggedInBox" class="hidden">
       <p>Conectado como <strong id="authEmailDisplay"></strong></p>
       <div class="modal-actions">
+        <button id="authSyncNowBtn" class="btn-file">Sincronizar agora</button>
         <button id="authCloseBtn" class="btn-edit">Fechar</button>
         <button id="authLogoutBtn" class="btn-danger-ghost">Sair</button>
       </div>
@@ -552,6 +553,57 @@
   let unsubscribeSnapshot = null;
   const configOk = firebaseConfig.apiKey && firebaseConfig.apiKey !== 'COLE_AQUI';
 
+  // Padrão local-first: o estado já está na tela (via localStorage) desde
+  // o primeiro instante, sem depender do Firebase. Comparamos por data/hora
+  // POR CARD (cada card tem seu próprio updatedAt) — nunca troca o documento
+  // inteiro de uma vez, então um card com dado antigo na nuvem nunca apaga
+  // outro card que acabou de ser salvo aqui.
+  function mergeRemote(remote){
+    let changed = false;
+    CARD_IDS.forEach(id => {
+      const remoteCard = remote.cards && remote.cards[id];
+      const localCard = appState.cards[id];
+      if(remoteCard && (!localCard || (remoteCard.updatedAt||0) > (localCard.updatedAt||0))){
+        appState.cards[id] = remoteCard;
+        changed = true;
+      }
+    });
+    if(remote.reportDate && !appState.reportDate){ appState.reportDate = remote.reportDate; changed = true; }
+    if(changed){
+      try{ localStorage.setItem(LS_KEY, JSON.stringify(appState)); } catch(e){}
+      renderAll(appState);
+    }
+  }
+
+  function pullFromCloud(){
+    if(!docRef) return;
+    docRef.get().then(snap => {
+      if(snap.exists) mergeRemote(snap.data());
+      pushToCloudNow(); // garante que o que ficou local (já mesclado) também vai pra nuvem
+      setSyncStatus('ok');
+    }).catch(err => setSyncStatus('error', err));
+  }
+
+  function startSnapshotListener(){
+    if(unsubscribeSnapshot || !docRef) return;
+    unsubscribeSnapshot = docRef.onSnapshot(snap => {
+      if(!snap.exists) return;
+      const remote = snap.data();
+      if(remote.updatedAt && remote.updatedAt === lastPushedAt) return; // eco do nosso próprio envio
+      mergeRemote(remote);
+      setSyncStatus('ok');
+    }, err => {
+      // Se a escuta em tempo real cair por qualquer motivo (ex: instabilidade
+      // de rede no instante do login), ela morre e o Firestore NÃO tenta de
+      // novo sozinho. Sem isso, essa máquina ficaria recebendo só o que ela
+      // mesma digita, pra sempre. Por isso: zera a variável (permite recriar)
+      // e tenta de novo em alguns segundos.
+      setSyncStatus('error', err);
+      unsubscribeSnapshot = null;
+      setTimeout(() => { if(currentUser) startSnapshotListener(); }, 4000);
+    });
+  }
+
   function initFirebase(){
     if(!configOk){
       document.getElementById('configWarning').classList.remove('hidden');
@@ -564,31 +616,6 @@
       auth = firebase.auth();
       docRef = db.collection(COLLECTION).doc(DOC_ID);
 
-      // Padrão local-first: o estado já está na tela (via localStorage) desde
-      // o primeiro instante, sem depender do Firebase. Ao logar, buscamos uma
-      // vez e comparamos por data/hora (updatedAt) — só adota o que veio da
-      // nuvem se for mais novo que o que já está aqui; senão, empurra o local
-      // pra nuvem. Isso evita qualquer corrida apagando dado local por engano.
-      // A comparação é POR CARD (cada card tem seu próprio updatedAt) — nunca
-      // troca o documento inteiro de uma vez, então um card com dado antigo na
-      // nuvem nunca apaga outro card que acabou de ser salvo aqui.
-      function mergeRemote(remote){
-        let changed = false;
-        CARD_IDS.forEach(id => {
-          const remoteCard = remote.cards && remote.cards[id];
-          const localCard = appState.cards[id];
-          if(remoteCard && (!localCard || (remoteCard.updatedAt||0) > (localCard.updatedAt||0))){
-            appState.cards[id] = remoteCard;
-            changed = true;
-          }
-        });
-        if(remote.reportDate && !appState.reportDate){ appState.reportDate = remote.reportDate; changed = true; }
-        if(changed){
-          try{ localStorage.setItem(LS_KEY, JSON.stringify(appState)); } catch(e){}
-          renderAll(appState);
-        }
-      }
-
       auth.onAuthStateChanged(user => {
         currentUser = user;
         const authWarning = document.getElementById('authWarning');
@@ -598,21 +625,8 @@
           document.getElementById('authLoggedOutBox').classList.add('hidden');
           document.getElementById('authLoggedInBox').classList.remove('hidden');
 
-          docRef.get().then(snap => {
-            if(snap.exists) mergeRemote(snap.data());
-            pushToCloudNow(); // garante que o que ficou local (já mesclado) também vai pra nuvem
-            setSyncStatus('ok');
-          }).catch(err => setSyncStatus('error', err));
-
-          if(!unsubscribeSnapshot){
-            unsubscribeSnapshot = docRef.onSnapshot(snap => {
-              if(!snap.exists) return;
-              const remote = snap.data();
-              if(remote.updatedAt && remote.updatedAt === lastPushedAt) return; // eco do nosso próprio envio
-              mergeRemote(remote);
-              setSyncStatus('ok');
-            }, err => setSyncStatus('error', err));
-          }
+          pullFromCloud();
+          startSnapshotListener();
         } else {
           if(authWarning) authWarning.classList.remove('hidden');
           document.getElementById('authLoggedOutBox').classList.remove('hidden');
@@ -904,6 +918,12 @@
   document.getElementById('authLogoutBtn').addEventListener('click', () => {
     if(!auth) return;
     auth.signOut().then(() => { closeModal(); showToast('Você saiu.'); });
+  });
+
+  document.getElementById('authSyncNowBtn').addEventListener('click', () => {
+    pullFromCloud();
+    startSnapshotListener(); // recria a escuta se ela tiver morrido silenciosamente
+    showToast('Sincronizando...');
   });
 
   function traduzErroAuth(err){
