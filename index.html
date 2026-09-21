@@ -74,6 +74,10 @@
   .card-head h3{margin:0;font-size:24px;font-weight:600;}
   .badge{font-size:13px;padding:3px 10px;border-radius:20px;background:var(--panel-2);color:var(--text-dim);border:1px solid var(--line);white-space:nowrap;}
   .badge.confirmed{color:var(--ok);border-color:rgba(95,191,119,0.4);background:rgba(95,191,119,0.1);}
+  .badge.stale{color:var(--danger);border-color:rgba(217,105,95,0.4);background:rgba(217,105,95,0.1);}
+  .farol{width:11px;height:11px;border-radius:50%;background:var(--text-dim);opacity:0.35;flex:none;display:inline-block;}
+  .farol.ok{background:var(--ok);opacity:1;box-shadow:0 0 6px rgba(95,191,119,0.55);}
+  .farol.stale{background:var(--danger);opacity:1;box-shadow:0 0 6px rgba(217,105,95,0.55);}
   .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:16px;}
   @media (max-width:420px){.field-grid{grid-template-columns:1fr;}}
   label.field{display:flex;flex-direction:column;gap:6px;font-size:14px;color:var(--text-dim);}
@@ -166,7 +170,7 @@
   <div class="tab-panel" data-panel="digestores">
     <div class="dual-card-row">
       <div class="card card-hw" data-card="digestorHW" data-type="digestor" data-confirmed="false">
-        <div class="card-head"><h3>Digestor HW</h3><span class="badge" data-badge>Pendente</span></div>
+        <div class="card-head"><h3>Digestor HW</h3><span class="farol" data-farol></span><span class="badge" data-badge>Pendente</span></div>
         <div class="field-grid">
           <label class="field">Produção dia anterior
             <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAnterior" placeholder="3713"><span>tsa/d</span></div>
@@ -195,7 +199,7 @@
       </div>
 
       <div class="card card-sw" data-card="digestorSW" data-type="digestor" data-confirmed="false">
-        <div class="card-head"><h3>Digestor SW</h3><span class="badge" data-badge>Pendente</span></div>
+        <div class="card-head"><h3>Digestor SW</h3><span class="farol" data-farol></span><span class="badge" data-badge>Pendente</span></div>
         <div class="field-grid">
           <label class="field">Produção dia anterior
             <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAnterior" placeholder="1451,5"><span>tsa/d</span></div>
@@ -227,7 +231,7 @@
 
   <div class="tab-panel" data-panel="branqueamentoHW" hidden>
     <div class="card card-hw" data-card="branqueamentoHW" data-type="branqueamento" data-confirmed="false">
-      <div class="card-head"><h3>Branqueamento HW</h3><span class="badge" data-badge>Pendente</span></div>
+      <div class="card-head"><h3>Branqueamento HW</h3><span class="farol" data-farol></span><span class="badge" data-badge>Pendente</span></div>
       <div class="field-grid">
         <label class="field">Produção dia anterior
           <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAnterior" placeholder="3865,1"><span>tsa/d</span></div>
@@ -279,7 +283,7 @@
 
   <div class="tab-panel" data-panel="branqueamentoSW" hidden>
     <div class="card card-sw" data-card="branqueamentoSW" data-type="branqueamento" data-confirmed="false">
-      <div class="card-head"><h3>Branqueamento SW</h3><span class="badge" data-badge>Pendente</span></div>
+      <div class="card-head"><h3>Branqueamento SW</h3><span class="farol" data-farol></span><span class="badge" data-badge>Pendente</span></div>
       <div class="field-grid">
         <label class="field">Produção dia anterior
           <div class="input-suffix"><input type="text" inputmode="decimal" data-field="prodAnterior" placeholder="1346,1"><span>tsa/d</span></div>
@@ -371,6 +375,7 @@
   const CARD_LABELS = {digestorHW:'DIGESTOR HW', branqueamentoHW:'BRANQUEAMENTO HW', digestorSW:'DIGESTOR SW', branqueamentoSW:'BRANQUEAMENTO SW'};
   const CARD_TYPES  = {digestorHW:'digestor', branqueamentoHW:'branqueamento', digestorSW:'digestor', branqueamentoSW:'branqueamento'};
   const CARD_IDS = Object.keys(CARD_LABELS);
+  const STALE_MS = 4 * 60 * 60 * 1000; // 4 horas — depois disso, precisa reconfirmar
   const COLLECTION = 'relatorioFibrasBranqueada';
   const DOC_ID = 'current';
   const LS_KEY = 'rfbEstado';
@@ -490,16 +495,47 @@
       });
       card.querySelector('.pend-detail').hidden = (data.pendValue || 'sem') !== 'com';
     }
-    applyCardSavedState(card, !!data.salvo);
+    applyCardSavedState(card);
     updateStatus();
   }
 
-  function applyCardSavedState(card, salvo){
-    card.dataset.saved = salvo ? 'true' : 'false';
-    const badge = card.querySelector('[data-badge]');
-    badge.textContent = salvo ? '✓ Salvo' : 'Pendente';
-    badge.classList.toggle('confirmed', salvo);
+  function isFresh(id){
+    const c = appState.cards[id];
+    if(!c || !c.salvo) return false;
+    return (Date.now() - (c.updatedAt || 0)) < STALE_MS;
   }
+
+  function applyCardSavedState(card){
+    const id = card.dataset.card;
+    const c = appState.cards[id] || {};
+    const badge = card.querySelector('[data-badge]');
+    const farol = card.querySelector('[data-farol]');
+    if(!c.salvo){
+      card.dataset.saved = 'false';
+      badge.textContent = 'Pendente';
+      badge.classList.remove('confirmed','stale');
+      if(farol) farol.classList.remove('ok','stale');
+    } else if(isFresh(id)){
+      card.dataset.saved = 'true';
+      badge.textContent = '✓ Salvo';
+      badge.classList.add('confirmed');
+      badge.classList.remove('stale');
+      if(farol){ farol.classList.add('ok'); farol.classList.remove('stale'); }
+    } else {
+      card.dataset.saved = 'false'; // conta como pendente de novo pra efeito de cópia
+      badge.textContent = '⚠ Reconfirme';
+      badge.classList.remove('confirmed');
+      badge.classList.add('stale');
+      if(farol){ farol.classList.remove('ok'); farol.classList.add('stale'); }
+    }
+  }
+
+  // Reavalia periodicamente — assim o farol vira vermelho sozinho depois de 4h,
+  // mesmo que ninguém mexa em nada na tela nesse meio tempo.
+  setInterval(() => {
+    CARD_IDS.forEach(id => { const c = cardEl(id); if(c) applyCardSavedState(c); });
+    updateStatus();
+  }, 60000);
 
   function renderAll(state){
     CARD_IDS.forEach(id => {
@@ -754,7 +790,7 @@
         if(value !== 'com') detail.value = '';
         card.dataset.saved = 'false';
         saveCard(id);
-        applyCardSavedState(card, false);
+        applyCardSavedState(card);
         updateStatus();
       } catch(err){ console.error('Erro no toggle de pendência', err); }
     });
@@ -783,7 +819,7 @@
         }
         card.dataset.saved = 'false';
         saveCard(id);
-        applyCardSavedState(card, false);
+        applyCardSavedState(card);
         updateStatus();
       } catch(err){ console.error('Erro no toggle de qualidade', err); }
     });
@@ -797,7 +833,7 @@
           try{
             card.dataset.saved = 'false';
             saveCard(id);
-            applyCardSavedState(card, false);
+            applyCardSavedState(card);
             updateStatus();
           } catch(e){ console.error('Erro ao salvar o card', id, e); }
         });
@@ -811,13 +847,13 @@
             return;
           }
           card.dataset.saved = 'true';
-          applyCardSavedState(card, true);
-          updateStatus();
           saveCard(id, true);
+          applyCardSavedState(card);
+          updateStatus();
           showToast('Dados salvos!');
         } catch(e){ console.error('Erro ao salvar o card', id, e); alert('Erro ao salvar: ' + e.message); }
       });
-      applyCardSavedState(card, card.dataset.saved === 'true');
+      applyCardSavedState(card);
     } catch(e){ console.error('Erro ao preparar o card', card.dataset.card, e); }
   });
 
@@ -859,6 +895,8 @@
     const ok = window.confirm('Isso vai apagar os dados de TODOS os operadores.\n\nTem certeza que deseja limpar tudo?');
     if(!ok) return;
     appState = defaultState();
+    const now = Date.now();
+    CARD_IDS.forEach(id => { appState.cards[id].updatedAt = now; }); // "mais novo" de propósito, pra vencer qualquer dado antigo que outra máquina ainda tenha
     persist(true);
     renderAll(appState);
     if(reportDateInput) reportDateInput.value = '';
