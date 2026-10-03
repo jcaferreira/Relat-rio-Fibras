@@ -757,7 +757,15 @@
     const prodAnt = parseAndFormat(val(card,'prodAnterior'));
     const prodAtu = parseAndFormat(val(card,'prodAtual'));
     const pendValue = val(card,'pendValue');
-    const pendText = pendValue === 'com' ? ('Com — ' + val(card,'pendDetalhe').trim()) : 'Sem';
+    const pendencias = val(card,'pendDetalhe')
+  .split('\n')
+  .filter(l => l.trim())
+  .map(l => '   • ' + l.trim())
+  .join('\n');
+
+const pendText = pendValue === 'com'
+  ? ('Com\n' + pendencias)
+  : 'Sem';
     if(type === 'digestor'){
       const kappaAnt = parseAndFormat(val(card,'kappaAnterior'));
       const kappaAtu = parseAndFormat(val(card,'kappaAtual'));
