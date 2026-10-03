@@ -767,7 +767,7 @@
       const qualAntText = modeAnt === '100' ? '100% EP' : (parseAndFormat(val(card,'qualAnterior')) + '% EP — Desclassificado: ' + val(card,'qualAnteriorMotivo').trim());
 
       const modeAtu = val(card,'qualAtualMode') || 'EP';
-      const qualAtuText = modeAtu === 'EP' ? 'EP' : val(card,'qualMotivo').trim();
+      const qualAtuText = modeAtu === 'EP' ? 'EP'  : 'Não EP - ' + val(card,'qualMotivo').trim();
 
       return label + ':\n # Produção dia Anterior: ' + prodAnt + ' tsa/d\n # Produção atual: ' + prodAtu + ' tsa/d\n # Qualidade dia anterior: ' + qualAntText + '\n # Qualidade atual: ' + qualAtuText + '\n # Pendências: ' + pendText;
     }
